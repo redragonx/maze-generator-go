@@ -16,9 +16,7 @@ import (
 	"time"
 
 	"src.rocks/redragonx/maze-generator-go/stack"
-
-	_ "image/png"
-
+	
 	"github.com/faiface/pixel"
 	"github.com/faiface/pixel/imdraw"
 	"github.com/faiface/pixel/pixelgl"
@@ -60,7 +58,7 @@ func (c *Cell) Draw(imd *imdraw.IMDraw, wallSize int) {
 	}
 	if c.walls[2] {
 
-		//  bottom line
+		// bottom line
 		//imd.Color(colornames.Beige)
 		imd.Push(pixel.V(float64(drawCol+wallSize), float64(drawRow+wallSize)), pixel.V(float64(drawCol), float64(drawRow+wallSize)))
 		imd.Line(3)
