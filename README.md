@@ -11,7 +11,7 @@ I made this to improve my understanding of Go and some game concepts with some b
 
 Controls: Press r to restart the maze.
 
-Command-line arguments: `go run ./maze-generator.go`
+Optional command-line arguments: `go run ./maze-generator.go`
   - "w sets the maze's width in pixels.
   -	"h sets the maze's height in pixels.
   -	"c sets the maze cell's size in pixels.
