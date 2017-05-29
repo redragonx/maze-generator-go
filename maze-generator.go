@@ -1,44 +1,35 @@
 package main
 
+// Code based on the Recursive backtracker algorithm.
+// https://en.wikipedia.org/wiki/Maze_generation_algorithm#Recursive_backtracker
+// See https://youtu.be/HyK_Q5rrcr4 as an example
+// YouTube example ported to Go for the Pixel library.
+
+// Created by Stephen Chavez
+
 import (
 	"crypto/rand"
 	"errors"
+	"flag"
 	"fmt"
-	"image"
 	"math/big"
-	"os"
 	"time"
+
+	"src.rocks/redragonx/maze-generator-go/stack"
 
 	_ "image/png"
 
 	"github.com/faiface/pixel"
 	"github.com/faiface/pixel/imdraw"
 	"github.com/faiface/pixel/pixelgl"
-	"github.com/pkg/profile"
 
+	"github.com/pkg/profile"
 	"golang.org/x/image/colornames"
-	"src.rocks/redragonx/maze-generator-go/stack"
 )
 
 var visitedColor = pixel.RGB(0.5, 0, 1).Mul(pixel.Alpha(0.35))
 var hightlightColor = pixel.RGB(0.3, 0, 0).Mul(pixel.Alpha(0.45))
-
-func loadPicture(path string) (pixel.Picture, error) {
-	file, err := os.Open(path)
-
-	if err != nil {
-		return nil, err
-	}
-
-	defer file.Close()
-	img, _, err := image.Decode(file)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return pixel.PictureDataFromImage(img), nil
-}
+var debug = false
 
 type Cell struct {
 	// Wall order
@@ -89,23 +80,6 @@ func (c *Cell) Draw(imd *imdraw.IMDraw, wallSize int) {
 	}
 }
 
-func index(i, j, cols, rows int) int {
-	if i < 0 || j < 0 || i > cols-1 || j > rows-1 {
-		return -1
-	}
-	return i + j*cols
-}
-
-func getCellAt(i int, j int, cols int, rows int, grid []*Cell) (*Cell, error) {
-	possibleIndex := index(i, j, cols, rows)
-
-	if possibleIndex == -1 {
-		return nil, fmt.Errorf("index: index is a negative number %d", possibleIndex)
-	}
-
-	return grid[possibleIndex], nil
-}
-
 func (c *Cell) GetNeighbors(grid []*Cell, cols int, rows int) ([]*Cell, error) {
 	neighbors := []*Cell{}
 	j := c.row
@@ -144,7 +118,6 @@ func (c *Cell) GetRandomNeighbor(grid []*Cell, cols int, rows int) (*Cell, error
 			panic(err)
 		}
 		randomIndex := nBig.Int64()
-		// fmt.Printf("random index: %d", randomIndex)
 		return neighbors[randomIndex], nil
 	} else {
 		return nil, err
@@ -160,7 +133,7 @@ func (c *Cell) hightlight(imd *imdraw.IMDraw, wallSize int) {
 	imd.Rectangle(0)
 }
 
-func NewCell(col int, row int) *Cell {
+func newCell(col int, row int) *Cell {
 	newCell := new(Cell)
 	newCell.row = row
 	newCell.col = col
@@ -168,48 +141,98 @@ func NewCell(col int, row int) *Cell {
 	for i := range newCell.walls {
 		newCell.walls[i] = true
 	}
-
 	return newCell
-
 }
 
-func initGrid(grid []*Cell, cols int, rows int) []*Cell {
+// Creates the inital maze slice for use.
+func initGrid(cols, rows int) []*Cell {
+
+	grid := []*Cell{}
 	for j := 0; j < rows; j++ {
 		for i := 0; i < cols; i++ {
-			newCell := NewCell(i, j)
+			newCell := newCell(i, j)
 			grid = append(grid, newCell)
 		}
 	}
-	// fmt.Printf("%d", len(grid))
 	return grid
+}
 
+func setupMaze(cols, rows int) ([]*Cell, *stack.Stack, *Cell) {
+	// Make an empty grid
+	grid := initGrid(cols, rows)
+	backTrackStack := stack.NewStack(len(grid))
+	currentCell := grid[0]
+
+	return grid, backTrackStack, currentCell
+}
+
+func cellIndex(i, j, cols, rows int) int {
+	if i < 0 || j < 0 || i > cols-1 || j > rows-1 {
+		return -1
+	}
+	return i + j*cols
+}
+
+func getCellAt(i int, j int, cols int, rows int, grid []*Cell) (*Cell, error) {
+	possibleIndex := cellIndex(i, j, cols, rows)
+
+	if possibleIndex == -1 {
+		return nil, fmt.Errorf("cellIndex: CellIndex is a negative number %d", possibleIndex)
+	}
+	return grid[possibleIndex], nil
+}
+
+func removeWalls(a *Cell, b *Cell) {
+	x := a.col - b.col
+
+	if x == 1 {
+		a.walls[3] = false
+		b.walls[1] = false
+	} else if x == -1 {
+		a.walls[1] = false
+		b.walls[3] = false
+	}
+
+	y := a.row - b.row
+
+	if y == 1 {
+		a.walls[0] = false
+		b.walls[2] = false
+	} else if y == -1 {
+		a.walls[2] = false
+		b.walls[0] = false
+	}
 }
 
 func run() {
 
+	// unsiged integers, because easier parsing error checks.
+	// We must convert these to intergers, as done below...
+	u_screenWidth, u_screenHeight, u_wallSize := parseArgs()
+
 	var (
 		// In pixels
-		// 10x10 wallgrid
-		wallSize    = 40
-		screenHeigt = 800
-		screenWidth = 800
+		// Defualt is 800x800x40 = 20x20 wallgrid
+		screenWidth  = int(u_screenWidth)
+		screenHeight = int(u_screenHeight)
+		wallSize     = int(u_wallSize)
 
 		frames = 0
 		second = time.Tick(time.Second)
 
 		grid           = []*Cell{}
 		cols           = screenWidth / wallSize
-		rows           = screenHeigt / wallSize
+		rows           = screenHeight / wallSize
 		currentCell    = new(Cell)
-		backTrackStack = stack.NewStack(50)
+		backTrackStack = stack.NewStack(1)
 	)
 
 	// Set game FPS manually
 	fps := time.Tick(time.Second / 60)
 
 	cfg := pixelgl.WindowConfig{
-		Title:  "Pixel Rocks!",
-		Bounds: pixel.R(0, 0, float64(screenHeigt), float64(screenWidth)),
+		Title:  "Pixel Rocks! - Maze example",
+		Bounds: pixel.R(0, 0, float64(screenHeight), float64(screenWidth)),
 	}
 
 	win, err := pixelgl.NewWindow(cfg)
@@ -217,21 +240,22 @@ func run() {
 		panic(err)
 	}
 
-	// Make an empty grid
-	grid = initGrid(grid, cols, rows)
-	currentCell = grid[0]
+	grid, backTrackStack, currentCell = setupMaze(cols, rows)
 
-	//fmt.Println("Number of cells", string(len(grid)))
 	gridIMDraw := imdraw.New(nil)
 
 	for !win.Closed() {
+
+		if win.JustReleased(pixelgl.KeyR) {
+			fmt.Println("R pressed")
+			grid, backTrackStack, currentCell = setupMaze(cols, rows)
+		}
 
 		win.Clear(colornames.Gray)
 		gridIMDraw.Clear()
 
 		for i := range grid {
 			grid[i].Draw(gridIMDraw, wallSize)
-			//fmt.Printf("index: %d", i)
 		}
 
 		// step 1
@@ -265,45 +289,48 @@ func run() {
 		gridIMDraw.Draw(win)
 		win.Update()
 		<-fps
-		updateFPSDisplay(win, &cfg, &frames, second)
+		updateFPSDisplay(win, &cfg, &frames, grid, second)
 	}
 }
 
-func removeWalls(a *Cell, b *Cell) {
-	x := a.col - b.col
+// Parses the maze arguments, all of them are optional.
+// Uses uint as implicit error checking :)
+func parseArgs() (uint, uint, uint) {
 
-	if x == 1 {
-		a.walls[3] = false
-		b.walls[1] = false
-	} else if x == -1 {
-		a.walls[1] = false
-		b.walls[3] = false
+	var mazeWidthPtr = flag.Uint("w", 800, "w sets the maze's width in pixels.")
+	var mazeHeightPtr = flag.Uint("h", 800, "h sets the maze's height in pixels.")
+	var wallSizePtr = flag.Uint("c", 40, "c sets the maze cell's size in pixels.")
+
+	flag.Parse()
+
+	// If these aren't default values AND if they're not the same values.
+	// We should warn the user that the maze will look funny.
+	if *mazeWidthPtr != 800 || *mazeHeightPtr != 800 {
+		if *mazeWidthPtr != *mazeHeightPtr {
+			fmt.Printf("WARNING: maze width: %d and maze height: %d don't match. \n", *mazeWidthPtr, *mazeHeightPtr)
+			fmt.Println("Maze will look funny because the maze size is bond to the window size!")
+		}
 	}
 
-	y := a.row - b.row
-
-	if y == 1 {
-		a.walls[0] = false
-		b.walls[2] = false
-	} else if y == -1 {
-		a.walls[2] = false
-		b.walls[0] = false
-	}
+	return *mazeWidthPtr, *mazeHeightPtr, *wallSizePtr
 }
 
-func updateFPSDisplay(win *pixelgl.Window, cfg *pixelgl.WindowConfig, frames *int, second <-chan time.Time) {
+func updateFPSDisplay(win *pixelgl.Window, cfg *pixelgl.WindowConfig, frames *int, grid []*Cell, second <-chan time.Time) {
 
 	*frames++
 	select {
 	case <-second:
-		win.SetTitle(fmt.Sprintf("%s | FPS: %d", cfg.Title, *frames))
+		win.SetTitle(fmt.Sprintf("%s | FPS: %d with %d Cells", cfg.Title, *frames, len(grid)))
 		*frames = 0
 	default:
 	}
 
 }
+
 func main() {
 
-	defer profile.Start().Stop()
+	if debug {
+		defer profile.Start().Stop()
+	}
 	pixelgl.Run(run)
 }
